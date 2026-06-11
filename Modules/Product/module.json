@@ -1,0 +1,9 @@
+
+{
+    "name": "Product",
+    "alias": "product",
+    "providers": [
+        "Modules\\Product\\Providers\\ProductServiceProvider",
+        "Modules\\Product\\Providers\\RouteServiceProvider"
+    ]
+}
