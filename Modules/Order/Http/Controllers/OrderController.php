@@ -4,38 +4,43 @@ namespace Modules\Order\Http\Controllers;
 
 use App\Http\Controllers\Controller;
 use Modules\Order\Services\OrderService;
+use Modules\Order\Http\Requests\CheckoutRequest;
+use Modules\Order\Transformers\OrderResource;
 use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
 
 class OrderController extends Controller
 {
-    protected $orderService;
+    public function __construct(
+        protected OrderService $orderService
+    ) {}
 
-    public function __construct(OrderService $orderService)
+    public function checkout(CheckoutRequest $request): JsonResponse
     {
-        $this->orderService = $orderService;
-    }
+        $order = $this->orderService->checkout(
+            $request->user()->id,
+            $request->validated('notes')
+        );
 
-    public function checkout(Request $request): JsonResponse
-    {
-        try {
-            $order = $this->orderService->checkout($request->user()->id);
-            return response()->json([
-                'message' => 'سفارش با موفقیت ثبت شد.',
-                'order' => $order
-            ], 201);
-        } catch (\Exception $e) {
-            return response()->json(['message' => $e->getMessage()], 400);
-        }
+        return response()->json([
+            'message' => 'سفارش با موفقیت ثبت شد.',
+            'data' => new OrderResource($order),
+        ], 201);
     }
 
     public function index(Request $request): JsonResponse
     {
-        return response()->json($this->orderService->getUserOrders($request->user()->id));
+        $orders = $this->orderService->getUserOrders($request->user()->id);
+
+        return response()->json([
+            'data' => OrderResource::collection($orders),
+        ]);
     }
 
-    public function show(Request $request, $id): JsonResponse
+    public function show(Request $request, int $id): JsonResponse
     {
-        return response()->json($this->orderService->getOrderById($request->user()->id, $id));
+        $order = $this->orderService->getOrderById($request->user()->id, $id);
+
+        return response()->json(['data' => new OrderResource($order)]);
     }
 }

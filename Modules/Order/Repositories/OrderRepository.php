@@ -6,12 +6,13 @@ use Modules\Order\Models\Order;
 
 class OrderRepository
 {
-    public function createOrder($userId, $totalPrice, $status = 'pending')
+    public function createOrder($userId, $totalPrice, $status = 'pending', ?string $notes = null): Order
     {
         return Order::create([
             'user_id' => $userId,
             'total_price' => $totalPrice,
-            'status' => $status
+            'status' => $status,
+            'notes' => $notes,
         ]);
     }
 

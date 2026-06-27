@@ -8,13 +8,13 @@ class PaymentVerifyRequest extends FormRequest
 {
     public function authorize(): bool
     {
-        return true;
+        return $this->user() !== null;
     }
 
     public function rules(): array
     {
         return [
-            'payment_id' => 'required|exists:payments,id',
+            'payment_id' => ['required', 'integer', 'exists:payments,id'],
         ];
     }
 }

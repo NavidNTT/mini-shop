@@ -1,8 +1,5 @@
 <?php
 
-// use Illuminate\Support\Facades\Route;
-// use Modules\Product\Http\Controllers\ProductController;
+use Illuminate\Support\Facades\Route;
 
-// Route::middleware(['auth', 'verified'])->group(function () {
-//     Route::resource('products', ProductController::class)->names('product');
-// });
+// API-only module — web routes intentionally disabled.

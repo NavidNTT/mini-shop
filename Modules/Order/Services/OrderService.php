@@ -2,58 +2,76 @@
 
 namespace Modules\Order\Services;
 
+use Modules\Cart\Exceptions\EmptyCartException;
+use Modules\Order\Exceptions\InsufficientStockException;
 use Modules\Order\Repositories\OrderRepository;
 use Modules\Cart\Services\CartService;
+use Modules\Product\Exceptions\InactiveProductException;
+use Modules\Product\Exceptions\ProductNotFoundException;
+use Modules\Product\Models\Product;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Exception;
 
 class OrderService
 {
-    protected $orderRepository;
-    protected $cartService;
+    public function __construct(
+        protected OrderRepository $orderRepository,
+        protected CartService $cartService
+    ) {}
 
-    public function __construct(OrderRepository $orderRepository, CartService $cartService)
-    {
-        $this->orderRepository = $orderRepository;
-        $this->cartService = $cartService;
-    }
-
-    public function checkout($userId)
+    public function checkout($userId, ?string $notes = null)
     {
         $cart = $this->cartService->getCart($userId);
 
         if (!$cart || $cart->items->isEmpty()) {
             Log::warning("تلاش برای تسویه حساب با سبد خرید خالی. User ID: {$userId}");
-            throw new Exception('سبد خرید شما خالی است و امکان ثبت سفارش وجود ندارد.');
+            throw new EmptyCartException();
         }
 
-        $totalPrice = $cart->items->sum(function ($item) {
-            return $item->price * $item->quantity;
-        });
+        return DB::transaction(function () use ($userId, $cart, $notes) {
+            $totalPrice = 0;
 
-        return DB::transaction(function () use ($userId, $totalPrice, $cart) {
-            try {
-                $order = $this->orderRepository->createOrder($userId, $totalPrice);
+            foreach ($cart->items as $item) {
+                $product = Product::query()
+                    ->where('id', $item->product_id)
+                    ->lockForUpdate()
+                    ->first();
 
-                foreach ($cart->items as $item) {
-                    $order->items()->create([
-                        'product_id' => $item->product_id,
-                        'price'      => $item->price,
-                        'quantity'   => $item->quantity
-                    ]);
+                if (!$product) {
+                    throw new ProductNotFoundException($item->product_id);
                 }
 
-                // خالی کردن سبد خرید بعد از ثبت سفارش
-                $cart->items()->delete();
+                if (!$product->is_active) {
+                    throw new InactiveProductException($product->title);
+                }
 
-                Log::info("سفارش جدید ثبت شد. Order ID: {$order->id}, User ID: {$userId}");
+                if ($product->stock < $item->quantity) {
+                    Log::warning("موجودی ناکافی برای محصول {$product->title}. درخواستی: {$item->quantity}, موجودی: {$product->stock}");
+                    throw new InsufficientStockException($product->title, $product->stock, $item->quantity);
+                }
 
-                return $order->load('items.product');
-            } catch (Exception $e) {
-                Log::error("خطا در فرآیند ثبت سفارش: " . $e->getMessage());
-                throw new Exception('متأسفانه در ثبت سفارش مشکلی پیش آمد.');
+                $totalPrice += $item->price * $item->quantity;
             }
+
+            $order = $this->orderRepository->createOrder($userId, $totalPrice, 'pending', $notes);
+
+            foreach ($cart->items as $item) {
+                $order->items()->create([
+                    'product_id' => $item->product_id,
+                    'price' => $item->price,
+                    'quantity' => $item->quantity,
+                ]);
+
+                Product::query()
+                    ->where('id', $item->product_id)
+                    ->decrement('stock', $item->quantity);
+            }
+
+            $cart->items()->delete();
+
+            Log::info("سفارش جدید ثبت شد. Order ID: {$order->id}, User ID: {$userId}");
+
+            return $order->load('items.product');
         });
     }
 

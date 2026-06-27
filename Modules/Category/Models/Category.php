@@ -11,6 +11,10 @@ class Category extends Model
 {
     protected $fillable = ['name', 'slug', 'parent_id'];
 
+    protected $casts = [
+        'parent_id' => 'integer',
+    ];
+
     public function parent(): BelongsTo
     {
         return $this->belongsTo(Category::class, 'parent_id');

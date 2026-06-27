@@ -2,45 +2,36 @@
 
 namespace Modules\Payment\Providers;
 
+use Modules\Payment\Gateways\MockPaymentGateway;
+use Modules\Payment\Gateways\PaymentGatewayInterface;
+use Modules\Payment\Gateways\StripeGateway;
 use Nwidart\Modules\Support\ModuleServiceProvider;
-use Illuminate\Console\Scheduling\Schedule;
 
 class PaymentServiceProvider extends ModuleServiceProvider
 {
-    /**
-     * The name of the module.
-     */
     protected string $name = 'Payment';
 
-    /**
-     * The lowercase version of the module name.
-     */
     protected string $nameLower = 'payment';
 
-    /**
-     * Command classes to register.
-     *
-     * @var string[]
-     */
-    // protected array $commands = [];
-
-    /**
-     * Provider classes to register.
-     *
-     * @var string[]
-     */
     protected array $providers = [
         EventServiceProvider::class,
         RouteServiceProvider::class,
     ];
 
-    /**
-     * Define module schedules.
-     * 
-     * @param $schedule
-     */
-    // protected function configureSchedules(Schedule $schedule): void
-    // {
-    //     $schedule->command('inspire')->hourly();
-    // }
+    public function register(): void
+    {
+        parent::register();
+
+        $this->app->singleton(PaymentGatewayInterface::class, function () {
+            $gateway = config('payment.gateway', 'mock');
+
+            return match ($gateway) {
+                'stripe' => new StripeGateway(
+                    secretKey: (string) config('payment.stripe.secret_key'),
+                    publicKey: (string) config('payment.stripe.public_key'),
+                ),
+                default => new MockPaymentGateway(),
+            };
+        });
+    }
 }

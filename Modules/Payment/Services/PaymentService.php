@@ -2,87 +2,114 @@
 
 namespace Modules\Payment\Services;
 
+use Modules\Order\Exceptions\OrderNotPayableException;
+use Modules\Payment\Exceptions\PaymentFailedException;
+use Modules\Payment\Models\Payment;
 use Modules\Payment\Repositories\PaymentRepository;
-use Modules\Order\Models\Order;
-use Illuminate\Support\Str;
+use Modules\Payment\Gateways\PaymentGatewayInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Exception;
 
 class PaymentService
 {
-    protected $paymentRepository;
-
-    public function __construct(PaymentRepository $paymentRepository)
-    {
-        $this->paymentRepository = $paymentRepository;
-    }
+    public function __construct(
+        protected PaymentRepository $paymentRepository,
+        protected PaymentGatewayInterface $gateway
+    ) {}
 
     public function requestPayment($userId, $orderId)
     {
-        $order = Order::where('user_id', $userId)->findOrFail($orderId);
+        $order = $this->paymentRepository->findPendingOrderForUser($userId, $orderId);
 
-        if ($order->status !== 'pending') {
+        if (!$order->isPending()) {
             Log::warning("تلاش برای پرداخت سفارش غیرمعتبر: Order ID {$orderId} توسط User ID {$userId}");
-            throw new Exception('این سفارش قبلاً پرداخت شده یا وضعیت آن معتبر نیست.');
+            throw new OrderNotPayableException('این سفارش قبلاً پرداخت شده یا وضعیت آن معتبر نیست.');
         }
 
-        try {
+        $existingPendingPayment = Payment::query()
+            ->where('order_id', $order->id)
+            ->where('status', 'pending')
+            ->exists();
+
+        if ($existingPendingPayment) {
+            throw new OrderNotPayableException('یک درخواست پرداخت در انتظار برای این سفارش وجود دارد.');
+        }
+
+        return DB::transaction(function () use ($userId, $order) {
+            $gatewayResponse = $this->gateway->requestPayment(
+                amount: (float) $order->total_price,
+                metadata: ['order_id' => $order->id, 'user_id' => $userId]
+            );
+
+            if (!$gatewayResponse->isSuccessful()) {
+                throw new PaymentFailedException($gatewayResponse->getMessage());
+            }
+
             $payment = $this->paymentRepository->create([
                 'order_id' => $order->id,
                 'amount' => $order->total_price,
-                'status' => 'pending'
+                'status' => 'pending',
+                'reference_id' => $gatewayResponse->getTransactionId(),
             ]);
 
-            Log::info("درخواست پرداخت ایجاد شد: Payment ID {$payment->id} برای Order ID {$order->id}");
+            Log::info('درخواست پرداخت ایجاد شد', [
+                'payment_id' => $payment->id,
+                'order_id' => $order->id,
+                'gateway' => $this->gateway->name(),
+                'transaction_id' => $gatewayResponse->getTransactionId(),
+            ]);
 
             return [
                 'payment_id' => $payment->id,
-                'amount' => $payment->amount,
-                'payment_url' => url("/api/payment/verify?payment_id={$payment->id}"), // آدرس فرضی برای هدایت به درگاه
-                'message' => 'درخواست پرداخت با موفقیت ایجاد شد.'
+                'amount' => (float) $payment->amount,
+                'payment_url' => $gatewayResponse->getRedirectUrl(),
+                'transaction_id' => $gatewayResponse->getTransactionId(),
+                'gateway' => $this->gateway->name(),
+                'message' => $gatewayResponse->getMessage(),
             ];
-        } catch (Exception $e) {
-            Log::error("خطا در ایجاد درخواست پرداخت: " . $e->getMessage());
-            throw $e;
-        }
+        });
     }
 
     public function verifyPayment($userId, $paymentId)
     {
-        $payment = $this->paymentRepository->findById($paymentId);
-        
-        if (!$payment) {
-            Log::error("تلاش برای تایید پرداخت ناموجود: Payment ID {$paymentId}");
-            throw new Exception('اطلاعات پرداخت یافت نشد.');
-        }
+        return DB::transaction(function () use ($userId, $paymentId) {
+            $payment = $this->paymentRepository->findForUserWithLock($userId, $paymentId);
 
-        $order = Order::where('user_id', $userId)->findOrFail($payment->order_id);
-
-        if ($payment->status === 'success') {
-            Log::notice("تلاش مجدد برای تایید پرداخت موفق: Payment ID {$paymentId}");
-            throw new Exception('این پرداخت قبلاً تایید شده است.');
-        }
-
-        return DB::transaction(function () use ($payment, $order) {
-            try {
-                // شبیه‌سازی تایید پرداخت از سمت بانک
-                $referenceId = Str::random(12); 
-
-                $this->paymentRepository->update($payment, [
-                    'status' => 'success', 
-                    'reference_id' => $referenceId
-                ]);
-
-                $order->update(['status' => 'paid']);
-
-                Log::info("پرداخت با موفقیت تایید شد: Payment ID {$payment->id}, Ref ID: {$referenceId}");
-
-                return $payment;
-            } catch (Exception $e) {
-                Log::error("خطا در تایید تراکنش مالی: " . $e->getMessage());
-                throw new Exception('خطا در پردازش نهایی پرداخت.');
+            if ($payment->isSuccessful()) {
+                Log::notice("تلاش مجدد برای تایید پرداخت موفق: Payment ID {$paymentId}");
+                throw new PaymentFailedException('این پرداخت قبلاً تایید شده است.');
             }
+
+            if (!$payment->order->isPending()) {
+                throw new OrderNotPayableException('وضعیت سفارش برای تایید پرداخت معتبر نیست.');
+            }
+
+            $gatewayResponse = $this->gateway->verifyPayment(
+                paymentId: $payment->reference_id ?: (string) $payment->id
+            );
+
+            if (!$gatewayResponse->isSuccessful()) {
+                $this->paymentRepository->update($payment, ['status' => 'failed']);
+                throw new PaymentFailedException($gatewayResponse->getMessage());
+            }
+
+            $referenceId = $gatewayResponse->getTransactionId();
+
+            $this->paymentRepository->update($payment, [
+                'status' => 'success',
+                'reference_id' => $referenceId,
+            ]);
+
+            $payment->order->update(['status' => 'paid']);
+
+            Log::info('پرداخت با موفقیت تایید شد', [
+                'payment_id' => $payment->id,
+                'order_id' => $payment->order_id,
+                'reference_id' => $referenceId,
+                'gateway' => $this->gateway->name(),
+            ]);
+
+            return $payment->fresh(['order']);
         });
     }
 }

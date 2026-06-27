@@ -1,8 +1,5 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Modules\Order\Http\Controllers\OrderController;
 
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::resource('orders', OrderController::class)->names('order');
-});
+// API-only module — web routes intentionally disabled.

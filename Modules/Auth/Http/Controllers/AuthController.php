@@ -3,20 +3,17 @@
 namespace Modules\Auth\Http\Controllers;
 
 use App\Http\Controllers\Controller;
-use Modules\Auth\Http\Requests\RegisterRequest;
-use Modules\Auth\Http\Requests\LoginRequest;
-use Modules\Auth\Services\AuthService;
-use Illuminate\Http\Request;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\Request;
+use Modules\Auth\Http\Requests\LoginRequest;
+use Modules\Auth\Http\Requests\RegisterRequest;
+use Modules\Auth\Services\AuthService;
 
 class AuthController extends Controller
 {
-    protected $authService;
-
-    public function __construct(AuthService $authService)
-    {
-        $this->authService = $authService;
-    }
+    public function __construct(
+        protected AuthService $authService
+    ) {}
 
     public function register(RegisterRequest $request): JsonResponse
     {
@@ -24,7 +21,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'ثبت نام با موفقیت انجام شد.',
-            'data' => $result
+            'data' => $result,
         ], 201);
     }
 
@@ -34,7 +31,7 @@ class AuthController extends Controller
 
         return response()->json([
             'message' => 'ورود با موفقیت انجام شد.',
-            'data' => $result
+            'data' => $result,
         ]);
     }
 
@@ -47,6 +44,6 @@ class AuthController extends Controller
 
     public function user(Request $request): JsonResponse
     {
-        return response()->json($request->user());
+        return response()->json(['data' => $request->user()]);
     }
 }
