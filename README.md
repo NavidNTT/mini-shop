@@ -328,7 +328,7 @@ bash
 
 # 1. Clone the repo
 
-git clone https://github.com/your-username/mini-shop.git
+git clone https://github.com/NAVIDNTT/mini-shop.git
 cd mini-shop
 
 # 2. Install PHP dependencies
