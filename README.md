@@ -321,7 +321,7 @@ Setup & Installation
 Requirements
 PHP 8.3+
 Composer
-SQLite (یا MySQL)
+ MySQL
 Node.js (برای Vite/Tailwind فقط در صورت نیاز)
 Installation Steps
 bash
@@ -345,13 +345,11 @@ php artisan key:generate
 
 # 5. (Optional) تنظیم DB
 
-# پیش‌فرض روی SQLite تنظیم شده است
+# پیش‌فرض روی mysql تنظیم شده است
 
-# مطمئن شوید database/database.sqlite وجود دارد:
 
-touch database/database.sqlite
 
-# یا برای MySQL:
+touch database/database.mysql
 
 # در .env مقادیر DB\_\* را تنظیم کنید
 
