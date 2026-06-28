@@ -113,7 +113,7 @@ Language PHP 8.3+
 Framework Laravel 13.8
 Modules nwidart/laravel-modules
 Auth Laravel Sanctum
-DB SQLite (پیش‌فرض) / MySQL-ready
+DB MySQL
 Cache Database driver
 Queue Database driver
 Session Database driver
